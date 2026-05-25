@@ -114,6 +114,54 @@ Signed-off-by: Your Name <your.email@example>
 
 Pull requests with commits missing the `Signed-off-by:` trailer will fail the DCO check in CI. See the [DCO](DCO) file for the full certification text.
 
+## Releasing
+
+This project uses automated releases via GitHub Actions. Pushing a `v*` tag triggers the [Release workflow](.github/workflows/release.yml), which:
+
+1. Generates the changelog with git-cliff
+2. Commits the updated `CHANGELOG.md` back to the repo
+3. Builds cross-platform binaries with GoReleaser and publishes a GitHub Release
+4. Builds and pushes a Docker image to GHCR
+
+### Creating a release
+
+```bash
+make release
+```
+
+This target runs all checks (`fmt`, `vet`, `test`), generates the changelog, verifies the working tree is clean, creates a signed tag, and pushes it to trigger the release workflow. The version is automatically determined by incrementing the patch version of the latest tag (e.g., `v0.1.0` → `v0.1.1`). If no tags exist, it defaults to `v0.1.0`.
+
+To override the auto-detected version (e.g., for a minor or major bump):
+
+```bash
+make release RELEASE_VERSION=v0.2.0
+```
+
+### Dry run
+
+To verify the GoReleaser build matrix without creating a real release:
+
+```bash
+make release-dry-run
+```
+
+### Manual tagging
+
+If you need to create a tag without running the full checks (e.g., after verifying them separately):
+
+```bash
+make tag
+```
+
+This uses the same auto-incremented version. To specify a version manually:
+
+```bash
+make tag RELEASE_VERSION=v0.2.0
+git push origin v0.2.0
+```
+
+Tags must follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with a `v` prefix (e.g., `v0.1.0`, `v1.0.0`, `v1.2.3`).
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).

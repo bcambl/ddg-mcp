@@ -3,6 +3,8 @@ GIT_HASH := $(shell git rev-parse --short=6 HEAD 2>/dev/null || echo "000000")
 GIT_DIRTY := $(shell git diff --quiet HEAD 2>/dev/null && git diff --cached --quiet HEAD 2>/dev/null || echo "-dirty")
 VERSION := $(GIT_HASH)$(GIT_DIRTY)
 DOCKER_IMAGE := ghcr.io/bcambl/ddg-mcp
+LATEST_TAG := $(shell git tag --list 'v*' --sort=-version:refname | head -n1)
+RELEASE_VERSION := $(shell [ -n "$(LATEST_TAG)" ] && echo "$(LATEST_TAG)" | awk -F'[v.]' '{print "v"$$2"."$$3"."$$4+1}' || echo "v0.1.0")
 
 .PHONY: help
 help:
@@ -25,6 +27,12 @@ help:
 	@echo "  vet              Vet code for potential issues"
 	@echo "  deps             Tidy module dependencies"
 	@echo "  check            Run all checks (fmt + vet + test)"
+	@echo ""
+	@echo "Release:"
+	@echo "  release          Create and push a signed release tag (auto-increments patch)"
+	@echo "  release-check    Verify working tree is clean for release"
+	@echo "  release-dry-run  Run goreleaser locally in snapshot mode"
+	@echo "  tag              Create a signed tag (auto-increments patch)"
 
 .PHONY: all
 all: fmt test build
@@ -71,3 +79,24 @@ deps:
 
 .PHONY: check
 check: fmt vet test
+
+.PHONY: release-check
+release-check:
+	@git diff --quiet HEAD || (echo "ERROR: Working tree has uncommitted changes" && exit 1)
+	@git diff --cached --quiet HEAD || (echo "ERROR: Index has uncommitted changes" && exit 1)
+	@echo "Working tree is clean"
+
+.PHONY: release-dry-run
+release-dry-run:
+	goreleaser release --snapshot --clean
+
+.PHONY: release
+release: check changelog release-check
+	@echo "Creating release tag $(RELEASE_VERSION)..."
+	git tag -s $(RELEASE_VERSION) -m "Release $(RELEASE_VERSION)"
+	git push origin $(RELEASE_VERSION)
+
+.PHONY: tag
+tag:
+	@echo "Creating tag $(RELEASE_VERSION)..."
+	git tag -s $(RELEASE_VERSION) -m "Release $(RELEASE_VERSION)"
