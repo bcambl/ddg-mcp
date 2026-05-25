@@ -27,7 +27,7 @@ func setupMCPTest(t *testing.T) (*httptest.Server, *mcp.ClientSession) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(mockDDGHTML))
+		tWrite(t, w, []byte(mockDDGHTML))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -119,7 +119,7 @@ func TestMCPServerWebSearchEmptyQuery(t *testing.T) {
 func TestMCPServerWebSearchServerError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("server error"))
+		tWrite(t, w, []byte("server error"))
 	}))
 	defer srv.Close()
 
@@ -154,7 +154,7 @@ func TestMCPServerWebSearchServerError(t *testing.T) {
 func TestMCPServerWebSearchRateLimited(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte("rate limited"))
+		tWrite(t, w, []byte("rate limited"))
 	}))
 	defer srv.Close()
 

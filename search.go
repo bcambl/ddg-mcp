@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ const (
 	ddgTimeoutSec    = 15
 	maxRetries       = 2
 	retryBaseDelay   = 2 * time.Second
+	maxResponseBody  = 2 * 1024 * 1024
 )
 
 // SearchResult holds a single search result from DuckDuckGo.
@@ -40,13 +42,20 @@ type SearchClient struct {
 func newSearchClient() *SearchClient {
 	return &SearchClient{
 		httpClient: &http.Client{
-			Timeout: ddgTimeoutSec * 1e9,
+			Timeout: time.Duration(ddgTimeoutSec) * time.Second,
 		},
-		userAgent:  ddgDefaultUA,
+		userAgent:  envOrDefault("DDG_USER_AGENT", ddgDefaultUA),
 		baseURL:    ddgHTMLSearchURL,
 		maxRetries: maxRetries,
 		retryDelay: retryBaseDelay,
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 func (c *SearchClient) Search(ctx context.Context, query string) ([]SearchResult, error) {
@@ -78,19 +87,17 @@ func (c *SearchClient) Search(ctx context.Context, query string) ([]SearchResult
 		if err != nil {
 			return nil, fmt.Errorf("search request failed: %w", err)
 		}
+		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusTooManyRequests {
-			resp.Body.Close()
 			lastErr = fmt.Errorf("rate limited by DuckDuckGo (HTTP 429), please retry later")
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return nil, fmt.Errorf("DuckDuckGo returned HTTP %d: %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("DuckDuckGo returned HTTP %d", resp.StatusCode)
 		}
 
-		return parseResults(resp.Body)
+		return parseResults(io.LimitReader(resp.Body, maxResponseBody))
 	}
 
 	return nil, lastErr
@@ -211,10 +218,10 @@ func extractRealURL(href string) string {
 	uddg := u.Query().Get("uddg")
 	if uddg != "" {
 		decoded, err := url.QueryUnescape(uddg)
-		if err == nil {
-			return decoded
+		if err != nil {
+			return uddg
 		}
-		return uddg
+		return decoded
 	}
 	if strings.HasPrefix(href, "//") {
 		return "https:" + href

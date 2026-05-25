@@ -13,6 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func tWrite(t *testing.T, w http.ResponseWriter, data []byte) {
+	t.Helper()
+	_, err := w.Write(data)
+	require.NoError(t, err)
+}
+
 const mockDDGHTML = `<!DOCTYPE html>
 <html>
 <body>
@@ -56,8 +62,8 @@ const mockDDGEmptyHTML = `<!DOCTYPE html>
 func newMockDDGServer(t *testing.T, responseHTML string, statusCode int) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(statusCode)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(statusCode)
 		_, err := w.Write([]byte(responseHTML))
 		require.NoError(t, err)
 	}))
@@ -155,7 +161,7 @@ func TestSearchRequestHasCorrectHeaders(t *testing.T) {
 		capturedHeaders = r.Header
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(mockDDGHTML))
+		tWrite(t, w, []byte(mockDDGHTML))
 	}))
 	defer srv.Close()
 
@@ -175,7 +181,7 @@ func TestSearchQueryURLEncoded(t *testing.T) {
 		capturedQuery = r.URL.Query().Get("q")
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(mockDDGHTML))
+		tWrite(t, w, []byte(mockDDGHTML))
 	}))
 	defer srv.Close()
 
@@ -275,7 +281,7 @@ func TestSearchRetryOn429ThenSuccess(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(mockDDGHTML))
+		tWrite(t, w, []byte(mockDDGHTML))
 	}))
 	defer srv.Close()
 
@@ -337,8 +343,7 @@ func TestSearchNewRequestError(t *testing.T) {
 }
 
 func TestSuccessResultFallback(t *testing.T) {
-	r, err := successResult(make(chan int))
-	require.NoError(t, err)
+	r := successResult(make(chan int))
 	require.Len(t, r.Content, 1)
 	textContent, ok := r.Content[0].(*mcp.TextContent)
 	require.True(t, ok)
@@ -349,7 +354,10 @@ func BenchmarkParseResults(b *testing.B) {
 	reader := strings.NewReader(mockDDGHTML)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = parseResults(reader)
+		_, err := parseResults(reader)
+		if err != nil {
+			b.Fatal(err)
+		}
 		reader.Reset(mockDDGHTML)
 	}
 }
@@ -358,7 +366,9 @@ func BenchmarkSearch(b *testing.B) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(mockDDGHTML))
+		if _, err := w.Write([]byte(mockDDGHTML)); err != nil {
+			b.Fatal(err)
+		}
 	}))
 	defer srv.Close()
 
@@ -366,6 +376,9 @@ func BenchmarkSearch(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = client.Search(context.Background(), "test query")
+		_, err := client.Search(context.Background(), "test query")
+		if err != nil {
+			b.Fatal(err)
+		}
 	}
 }

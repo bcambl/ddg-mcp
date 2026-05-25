@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -34,19 +33,16 @@ func newServer(client *SearchClient) *mcp.Server {
 
 func makeWebSearchHandler(client *SearchClient) mcp.ToolHandlerFor[webSearchInput, any] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input webSearchInput) (*mcp.CallToolResult, any, error) {
-		input.Query = strings.TrimSpace(input.Query)
 		if err := input.validate(); err != nil {
-			r, _ := errorResult(err)
-			return r, nil, nil
+			return errorResult(err), nil, nil
 		}
 
 		results, err := client.Search(ctx, input.Query)
 		if err != nil {
-			r, _ := errorResult(err)
-			return r, nil, nil
+			return errorResult(err), nil, nil
 		}
 
-		r, _ := successResult(map[string]any{
+		r := successResult(map[string]any{
 			"query":        input.Query,
 			"result_count": len(results),
 			"results":      results,

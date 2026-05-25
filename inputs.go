@@ -17,7 +17,7 @@ type webSearchInput struct {
 	Query string `json:"query" jsonschema:"the search query string"`
 }
 
-func (i webSearchInput) validate() error {
+func (i *webSearchInput) validate() error {
 	i.Query = strings.TrimSpace(i.Query)
 	if i.Query == "" {
 		return errEmptyQuery
@@ -28,27 +28,27 @@ func (i webSearchInput) validate() error {
 	return nil
 }
 
-func errorResult(err error) (*mcp.CallToolResult, error) {
+func errorResult(err error) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: fmt.Sprintf("Error: %s", err.Error())},
 		},
 		IsError: true,
-	}, nil
+	}
 }
 
-func successResult(result any) (*mcp.CallToolResult, error) {
+func successResult(result any) *mcp.CallToolResult {
 	resultBytes, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: fmt.Sprintf("%v", result)},
 			},
-		}, nil
+		}
 	}
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: string(resultBytes)},
 		},
-	}, nil
+	}
 }
