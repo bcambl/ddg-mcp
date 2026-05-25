@@ -12,7 +12,7 @@ const serverName = "ddg-mcp"
 
 var version = "dev"
 
-func newServer(searchClient *SearchClient, fetchClient *FetchClient) *mcp.Server {
+func newServer(searchClient *SearchClient, fetchClient *FetchClient, defaultRegion string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
 		Version: version,
@@ -27,7 +27,7 @@ func newServer(searchClient *SearchClient, fetchClient *FetchClient) *mcp.Server
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "web_search",
 		Description: "Search the web using DuckDuckGo. Returns search results with titles, URLs, and snippets. Supports pagination, region, safe search, and time range filters.",
-	}, makeWebSearchHandler(searchClient))
+	}, makeWebSearchHandler(searchClient, defaultRegion))
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "web_fetch",
@@ -37,14 +37,19 @@ func newServer(searchClient *SearchClient, fetchClient *FetchClient) *mcp.Server
 	return server
 }
 
-func makeWebSearchHandler(client *SearchClient) mcp.ToolHandlerFor[webSearchInput, any] {
+func makeWebSearchHandler(client *SearchClient, defaultRegion string) mcp.ToolHandlerFor[webSearchInput, any] {
 	return func(ctx context.Context, req *mcp.CallToolRequest, input webSearchInput) (*mcp.CallToolResult, any, error) {
 		if err := input.validate(); err != nil {
 			return errorResult(err), nil, nil
 		}
 
+		region := input.Region
+		if region == "" {
+			region = defaultRegion
+		}
+
 		opts := SearchOptions{
-			Region:     input.Region,
+			Region:     region,
 			SafeSearch: input.SafeSearch,
 			TimeRange:  input.TimeRange,
 		}
@@ -83,14 +88,29 @@ func makeWebFetchHandler(client *FetchClient) mcp.ToolHandlerFor[webFetchInput, 
 	}
 }
 
+func parseLogLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
 func main() {
+	cfg := loadConfig()
+
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
+		Level: parseLogLevel(cfg.LogLevel),
 	})))
 
-	searchClient := newSearchClient()
-	fetchClient := newFetchClient()
-	server := newServer(searchClient, fetchClient)
+	searchClient := newSearchClient(cfg)
+	fetchClient := newFetchClient(cfg)
+	server := newServer(searchClient, fetchClient, cfg.DefaultRegion)
 
 	slog.Info("starting ddg-mcp server", "version", version)
 

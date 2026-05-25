@@ -13,7 +13,8 @@ import (
 )
 
 func newTestSearchClient(srv *httptest.Server) *SearchClient {
-	client := newSearchClient()
+	cfg := defaultTestConfig()
+	client := newSearchClient(cfg)
 	client.baseURL = srv.URL
 	client.httpClient = srv.Client()
 	client.maxRetries = 0
@@ -22,7 +23,8 @@ func newTestSearchClient(srv *httptest.Server) *SearchClient {
 }
 
 func newTestFetchClient(srv *httptest.Server) *FetchClient {
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	client.httpClient = srv.Client()
 	client.checkSSRF = false
 	return client
@@ -40,7 +42,7 @@ func setupMCPTest(t *testing.T) (*httptest.Server, *mcp.ClientSession) {
 
 	searchClient := newTestSearchClient(srv)
 	fetchClient := newTestFetchClient(srv)
-	server := newServer(searchClient, fetchClient)
+	server := newServer(searchClient, fetchClient, "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -137,7 +139,7 @@ func TestMCPServerWebSearchServerError(t *testing.T) {
 
 	searchClient := newTestSearchClient(srv)
 	fetchClient := newTestFetchClient(srv)
-	server := newServer(searchClient, fetchClient)
+	server := newServer(searchClient, fetchClient, "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -174,7 +176,7 @@ func TestMCPServerWebSearchRateLimited(t *testing.T) {
 
 	searchClient := newTestSearchClient(srv)
 	fetchClient := newTestFetchClient(srv)
-	server := newServer(searchClient, fetchClient)
+	server := newServer(searchClient, fetchClient, "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -238,7 +240,7 @@ func TestMCPServerWebFetchToolCall(t *testing.T) {
 
 	searchClient := newTestSearchClient(searchSrv)
 	fetchClient := newTestFetchClient(fetchSrv)
-	server := newServer(searchClient, fetchClient)
+	server := newServer(searchClient, fetchClient, "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()

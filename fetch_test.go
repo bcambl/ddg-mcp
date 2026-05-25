@@ -157,7 +157,8 @@ func TestFetchHTMLError500(t *testing.T) {
 }
 
 func TestFetchInvalidURL(t *testing.T) {
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	_, err := client.Fetch(context.Background(), "not-a-url", 0)
 	require.Error(t, err)
 }
@@ -342,7 +343,8 @@ func TestWebSearchInputValidation(t *testing.T) {
 // redirect in a hermetic test using only httptest. The callback is the unit
 // of behavior we want to verify.
 func TestFetchCheckRedirectBlocksPrivateIP(t *testing.T) {
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	require.True(t, client.checkSSRF, "SSRF check should be enabled by default")
 	require.NotNil(t, client.httpClient.CheckRedirect, "CheckRedirect must be configured")
 
@@ -356,7 +358,8 @@ func TestFetchCheckRedirectBlocksPrivateIP(t *testing.T) {
 }
 
 func TestFetchCheckRedirectBlocksLoopback(t *testing.T) {
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	loopbackURL, err := url.Parse("http://127.0.0.1:9999/internal")
 	require.NoError(t, err)
 	req := &http.Request{URL: loopbackURL}
@@ -367,7 +370,8 @@ func TestFetchCheckRedirectBlocksLoopback(t *testing.T) {
 }
 
 func TestFetchCheckRedirectBlocksLocalhost(t *testing.T) {
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	hostURL, err := url.Parse("http://localhost/admin")
 	require.NoError(t, err)
 	req := &http.Request{URL: hostURL}
@@ -378,7 +382,8 @@ func TestFetchCheckRedirectBlocksLocalhost(t *testing.T) {
 }
 
 func TestFetchCheckRedirectStopsAfter10(t *testing.T) {
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	pubURL, err := url.Parse("https://example.com/page")
 	require.NoError(t, err)
 	req := &http.Request{URL: pubURL}
@@ -395,7 +400,8 @@ func TestFetchCheckRedirectStopsAfter10(t *testing.T) {
 }
 
 func TestFetchCheckRedirectAllowsPublicWhenSSRFDisabled(t *testing.T) {
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	// Disable SSRF check to ensure the callback honours the flag.
 	client.checkSSRF = false
 
@@ -422,7 +428,8 @@ func TestFetchRedirectIntegrationBlocksPrivateIP(t *testing.T) {
 	}))
 	t.Cleanup(redirector.Close)
 
-	client := newFetchClient()
+	cfg := defaultTestConfig()
+	client := newFetchClient(cfg)
 	require.True(t, client.checkSSRF, "default client should have SSRF check enabled")
 
 	// Call the http client directly so the initial 127.0.0.1 URL is allowed

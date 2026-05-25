@@ -16,10 +16,8 @@ import (
 
 const (
 	fetchDefaultTimeout = 15 * time.Second
-	fetchMaxBodySize    = 2 * 1024 * 1024
 	fetchDefaultMaxLen  = 10000
 	fetchMaxMaxLen      = 50000
-	fetchUserAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
 type FetchResult struct {
@@ -38,14 +36,14 @@ type FetchClient struct {
 	checkSSRF  bool
 }
 
-func newFetchClient() *FetchClient {
+func newFetchClient(cfg *Config) *FetchClient {
 	fc := &FetchClient{
-		userAgent: fetchUserAgent,
-		maxBody:   fetchMaxBodySize,
-		checkSSRF: true,
+		userAgent: cfg.FetchUserAgent,
+		maxBody:   cfg.MaxBodySize,
+		checkSSRF: cfg.SSRFProtection,
 	}
 	fc.httpClient = &http.Client{
-		Timeout: fetchDefaultTimeout,
+		Timeout: cfg.FetchTimeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return fmt.Errorf("stopped after 10 redirects")

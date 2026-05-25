@@ -96,7 +96,8 @@ func newMockDDGServer(t *testing.T, responseHTML string, statusCode int) *httpte
 }
 
 func newTestClient(srv *httptest.Server) *SearchClient {
-	client := newSearchClient()
+	cfg := defaultTestConfig()
+	client := newSearchClient(cfg)
 	client.baseURL = srv.URL
 	client.httpClient = srv.Client()
 	client.maxRetries = 0
@@ -468,7 +469,8 @@ func TestSearchRetryOn429ThenSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newSearchClient()
+	cfg := defaultTestConfig()
+	client := newSearchClient(cfg)
 	client.baseURL = srv.URL
 	client.httpClient = srv.Client()
 	client.maxRetries = 1
@@ -486,7 +488,8 @@ func TestSearchRetryExhausted(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := newSearchClient()
+	cfg := defaultTestConfig()
+	client := newSearchClient(cfg)
 	client.baseURL = srv.URL
 	client.httpClient = srv.Client()
 	client.maxRetries = 1
@@ -517,7 +520,8 @@ func TestSearchConcurrentSafety(t *testing.T) {
 }
 
 func TestSearchNewRequestError(t *testing.T) {
-	client := newSearchClient()
+	cfg := defaultTestConfig()
+	client := newSearchClient(cfg)
 	client.baseURL = "http://\x00invalid"
 
 	_, err := client.Search(context.Background(), "test", SearchOptions{})
