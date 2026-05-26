@@ -7,7 +7,6 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -16,12 +15,12 @@ import (
 )
 
 const (
-	ddgLiteSearchURL = "https://lite.duckduckgo.com/lite/"
-	ddgDefaultUA     = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-	ddgTimeoutSec    = 15
-	maxRetries       = 2
-	retryBaseDelay   = 2 * time.Second
-	maxResponseBody  = 2 * 1024 * 1024
+	ddgLiteSearchURL      = "https://lite.duckduckgo.com/lite/"
+	ddgDefaultUA          = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	ddgTimeoutSec         = 15
+	ddgDefaultMaxRetries  = 2
+	ddgDefaultMaxBodySize = 2 * 1024 * 1024
+	retryBaseDelay        = 2 * time.Second
 )
 
 type SearchResult struct {
@@ -61,25 +60,20 @@ type SearchClient struct {
 	baseURL    string
 	maxRetries int
 	retryDelay time.Duration
+	maxBody    int64
 }
 
-func newSearchClient() *SearchClient {
+func newSearchClient(cfg *Config) *SearchClient {
 	return &SearchClient{
 		httpClient: &http.Client{
-			Timeout: time.Duration(ddgTimeoutSec) * time.Second,
+			Timeout: cfg.SearchTimeout,
 		},
-		userAgent:  envOrDefault("DDG_USER_AGENT", ddgDefaultUA),
-		baseURL:    ddgLiteSearchURL,
-		maxRetries: maxRetries,
+		userAgent:  cfg.UserAgent,
+		baseURL:    cfg.SearchURL,
+		maxRetries: cfg.MaxRetries,
 		retryDelay: retryBaseDelay,
+		maxBody:    cfg.MaxBodySize,
 	}
-}
-
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }
 
 func (c *SearchClient) Search(ctx context.Context, query string, opts SearchOptions) (*SearchResponse, error) {
@@ -124,7 +118,7 @@ func (c *SearchClient) Search(ctx context.Context, query string, opts SearchOpti
 			return nil, fmt.Errorf("search request failed: %w", err)
 		}
 
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, c.maxBody))
 		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response: %w", err)
@@ -208,7 +202,7 @@ func (c *SearchClient) SearchWithOffset(ctx context.Context, query string, offse
 			return nil, fmt.Errorf("search request failed: %w", err)
 		}
 
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, c.maxBody))
 		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("failed to read response: %w", err)

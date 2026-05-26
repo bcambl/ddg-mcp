@@ -15,7 +15,7 @@ func TestIntegrationSearchRealDDG(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	client := newSearchClient()
+	client := newSearchClient(defaultTestConfig())
 	client.httpClient.Timeout = 30 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -37,7 +37,7 @@ func TestIntegrationSearchEmptyResult(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	client := newSearchClient()
+	client := newSearchClient(defaultTestConfig())
 	client.httpClient.Timeout = 30 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -53,7 +53,7 @@ func TestIntegrationSearchSpecialCharacters(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	client := newSearchClient()
+	client := newSearchClient(defaultTestConfig())
 	client.httpClient.Timeout = 30 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

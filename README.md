@@ -50,6 +50,42 @@ ddg-mcp
 
 The server communicates over stdio using the MCP protocol. It is designed to be launched by MCP-compatible clients.
 
+### Environment Variables
+
+The following environment variables can be used to customize server behavior without modifying the binary or client configuration:
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `DDG_SEARCH_URL` | string | `https://lite.duckduckgo.com/lite/` | DuckDuckGo search endpoint URL |
+| `DDG_TIMEOUT` | duration | `15s` | HTTP timeout for search requests |
+| `DDG_FETCH_TIMEOUT` | duration | `15s` | HTTP timeout for fetch requests |
+| `DDG_MAX_RETRIES` | int | `2` | Max retries on HTTP 429 (rate limited) for search |
+| `DDG_MAX_BODY_SIZE` | int (bytes) | `2097152` (2 MiB) | Maximum response body size for search and fetch |
+| `DDG_USER_AGENT` | string | Chrome 120 UA | User-Agent for search requests |
+| `DDG_FETCH_USER_AGENT` | string | Chrome 120 UA | User-Agent for fetch requests |
+| `DDG_DEFAULT_REGION` | string | *(none)* | Default region bias (e.g., `us-en`, `uk-en`, `de-de`) when not specified per-request |
+| `DDG_SSRF_PROTECTION` | bool | `true` | Enable SSRF protection for `web_fetch` (redirects to private IPs blocked) |
+| `DDG_LOG_LEVEL` | string | `info` | Log level: `debug`, `info`, `warn`, `error` |
+
+Duration values accept Go-style strings: `15s`, `1m`, `500ms`.
+
+Boolean values accept: `true`, `false`, `1`, `0`.
+
+**Example with Docker:**
+
+```bash
+docker run --rm -i \
+  -e DDG_DEFAULT_REGION=uk-en \
+  -e DDG_LOG_LEVEL=debug \
+  ghcr.io/bcambl/ddg-mcp:latest
+```
+
+**Example with Go install:**
+
+```bash
+DDG_DEFAULT_REGION=de-de DDG_TIMEOUT=30s ddg-mcp
+```
+
 ### MCP client configuration
 
 Add the server to your MCP client configuration.
@@ -173,7 +209,7 @@ If installed via `go install`, use the full path:
 
 ### Prerequisites
 
-- Go 1.23+
+- Go 1.26+
 
 ### Build
 
