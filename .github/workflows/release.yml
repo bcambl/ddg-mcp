@@ -26,6 +26,9 @@ jobs:
         with:
           config: cliff.toml
           args: --tag=${{ github.ref_name }}
+      - name: Clean up git-cliff artifacts
+        run: rm -rf git-cliff/
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
