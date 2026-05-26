@@ -26,12 +26,6 @@ Download the latest release from the [releases page](https://github.com/bcambl/d
 go install github.com/bcambl/ddg-mcp@latest
 ```
 
-### Docker
-
-```bash
-docker pull ghcr.io/bcambl/ddg-mcp:latest
-```
-
 ### Build from source
 
 ```bash
@@ -70,15 +64,6 @@ The following environment variables can be used to customize server behavior wit
 Duration values accept Go-style strings: `15s`, `1m`, `500ms`.
 
 Boolean values accept: `true`, `false`, `1`, `0`.
-
-**Example with Docker:**
-
-```bash
-docker run --rm -i \
-  -e DDG_DEFAULT_REGION=uk-en \
-  -e DDG_LOG_LEVEL=debug \
-  ghcr.io/bcambl/ddg-mcp:latest
-```
 
 **Example with Go install:**
 
@@ -156,19 +141,6 @@ If installed via `go install`, use the full path:
     "ddg-search": {
       "command": "go",
       "args": ["run", "github.com/bcambl/ddg-mcp@latest"]
-    }
-  }
-}
-```
-
-#### Using Docker
-
-```json
-{
-  "mcpServers": {
-    "ddg-search": {
-      "command": "docker",
-      "args": ["run", "--rm", "-i", "ghcr.io/bcambl/ddg-mcp"]
     }
   }
 }
