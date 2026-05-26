@@ -90,4 +90,4 @@ release: check changelog release-check ## Create and push a signed release tag (
 .PHONY: tag
 tag: ## Create a signed tag (auto-increments patch)
 	@echo "Creating tag $(RELEASE_VERSION)..."
-	git tag -s $(RELEASE_VERSION) -m "Release $(RELEASE_VERSION)"
+	git tag $(RELEASE_VERSION) -m "Release $(RELEASE_VERSION)"
