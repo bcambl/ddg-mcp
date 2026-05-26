@@ -54,7 +54,7 @@ vet: ## Vet code for potential issues
 
 .PHONY: build
 build: clean ## Build the ddg-mcp binary
-	CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(VERSION)" -o bin/ddg-mcp .
+	CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(VERSION)" -o bin/ddg-mcp ./cmd/ddg-mcp
 
 .PHONY: docker
 docker: ## Build Docker image

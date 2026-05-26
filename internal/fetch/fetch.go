@@ -1,4 +1,4 @@
-package main
+package fetch
 
 import (
 	"context"
@@ -9,15 +9,15 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"golang.org/x/net/html"
+
+	"github.com/bcambl/ddg-mcp/internal/utils"
 )
 
 const (
-	fetchDefaultTimeout = 15 * time.Second
-	fetchDefaultMaxLen  = 10000
-	fetchMaxMaxLen      = 50000
+	defaultMaxLen = 10000
+	maxMaxLen     = 50000
 )
 
 type FetchResult struct {
@@ -29,61 +29,74 @@ type FetchResult struct {
 	Truncated     bool   `json:"truncated"`
 }
 
-type FetchClient struct {
+type ClientOptions struct {
+	HTTPClient  *http.Client
+	UserAgent   string
+	MaxBodySize int64
+	CheckSSRF   bool
+	Timeout     time.Duration
+}
+
+type Client struct {
 	httpClient *http.Client
 	userAgent  string
 	maxBody    int64
 	checkSSRF  bool
 }
 
-func newFetchClient(cfg *Config) *FetchClient {
-	fc := &FetchClient{
-		userAgent: cfg.FetchUserAgent,
-		maxBody:   cfg.MaxBodySize,
-		checkSSRF: cfg.SSRFProtection,
+func NewClient(opts ClientOptions) *Client {
+	checkSSRF := opts.CheckSSRF
+	fc := &Client{
+		userAgent: opts.UserAgent,
+		maxBody:   opts.MaxBodySize,
+		checkSSRF: checkSSRF,
 	}
-	fc.httpClient = &http.Client{
-		Timeout: cfg.FetchTimeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return fmt.Errorf("stopped after 10 redirects")
-			}
-			if fc.checkSSRF {
-				if err := isPrivateIP(req.URL.Hostname()); err != nil {
-					return fmt.Errorf("redirect to private IP blocked: %w", err)
+	if opts.HTTPClient != nil {
+		fc.httpClient = opts.HTTPClient
+	} else {
+		fc.httpClient = &http.Client{
+			Timeout: opts.Timeout,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 10 {
+					return fmt.Errorf("stopped after 10 redirects")
 				}
-			}
-			return nil
-		},
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout:   10 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			MaxIdleConns:          10,
-			IdleConnTimeout:       30 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 10 * time.Second,
-		},
+				if fc.checkSSRF {
+					if err := utils.IsPrivateIP(req.URL.Hostname()); err != nil {
+						return fmt.Errorf("redirect to private IP blocked: %w", err)
+					}
+				}
+				return nil
+			},
+			Transport: &http.Transport{
+				DialContext: (&net.Dialer{
+					Timeout:   10 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+				MaxIdleConns:          10,
+				IdleConnTimeout:       30 * time.Second,
+				TLSHandshakeTimeout:   10 * time.Second,
+				ResponseHeaderTimeout: 10 * time.Second,
+			},
+		}
 	}
 	return fc
 }
 
-func (c *FetchClient) Fetch(ctx context.Context, rawURL string, maxLength int) (*FetchResult, error) {
+func (c *Client) Fetch(ctx context.Context, rawURL string, maxLength int) (*FetchResult, error) {
 	if c.checkSSRF {
 		parsedURL, err := url.Parse(rawURL)
 		if err != nil {
 			return nil, fmt.Errorf("invalid URL: %w", err)
 		}
-		if err := isPrivateIP(parsedURL.Hostname()); err != nil {
+		if err := utils.IsPrivateIP(parsedURL.Hostname()); err != nil {
 			return nil, err
 		}
 	}
 	if maxLength <= 0 {
-		maxLength = fetchDefaultMaxLen
+		maxLength = defaultMaxLen
 	}
-	if maxLength > fetchMaxMaxLen {
-		maxLength = fetchMaxMaxLen
+	if maxLength > maxMaxLen {
+		maxLength = maxMaxLen
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
@@ -119,7 +132,7 @@ func (c *FetchClient) Fetch(ctx context.Context, rawURL string, maxLength int) (
 
 	truncated := false
 	if len(content) > maxLength {
-		content = truncateString(content, maxLength)
+		content = utils.TruncateString(content, maxLength)
 		truncated = true
 	}
 
@@ -197,6 +210,21 @@ func extractContent(htmlContent, contentType string) (string, string) {
 	return title, content
 }
 
+func collectText(n *html.Node) string {
+	var b strings.Builder
+	var f func(*html.Node)
+	f = func(node *html.Node) {
+		if node.Type == html.TextNode {
+			b.WriteString(node.Data)
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			f(c)
+		}
+	}
+	f(n)
+	return b.String()
+}
+
 func collapseWhitespace(s string) string {
 	var b strings.Builder
 	prevNewline := false
@@ -225,14 +253,4 @@ func collapseWhitespace(s string) string {
 	}
 
 	return strings.TrimSpace(b.String())
-}
-
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	for maxLen > 0 && !utf8.RuneStart(s[maxLen]) {
-		maxLen--
-	}
-	return s[:maxLen]
 }

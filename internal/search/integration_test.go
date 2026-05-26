@@ -1,13 +1,16 @@
 //go:build integration
 
-package main
+package search
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/bcambl/ddg-mcp/internal/config"
 )
 
 func TestIntegrationSearchRealDDG(t *testing.T) {
@@ -15,8 +18,13 @@ func TestIntegrationSearchRealDDG(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	client := newSearchClient(defaultTestConfig())
-	client.httpClient.Timeout = 30 * time.Second
+	client := NewClient(ClientOptions{
+		HTTPClient:  &http.Client{Timeout: 30 * time.Second},
+		UserAgent:   config.DefaultUserAgent,
+		BaseURL:     config.DefaultSearchURL,
+		MaxRetries:  config.DefaultMaxRetries,
+		MaxBodySize: config.DefaultMaxBodySize,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -37,8 +45,13 @@ func TestIntegrationSearchEmptyResult(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	client := newSearchClient(defaultTestConfig())
-	client.httpClient.Timeout = 30 * time.Second
+	client := NewClient(ClientOptions{
+		HTTPClient:  &http.Client{Timeout: 30 * time.Second},
+		UserAgent:   config.DefaultUserAgent,
+		BaseURL:     config.DefaultSearchURL,
+		MaxRetries:  config.DefaultMaxRetries,
+		MaxBodySize: config.DefaultMaxBodySize,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -53,8 +66,13 @@ func TestIntegrationSearchSpecialCharacters(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	client := newSearchClient(defaultTestConfig())
-	client.httpClient.Timeout = 30 * time.Second
+	client := NewClient(ClientOptions{
+		HTTPClient:  &http.Client{Timeout: 30 * time.Second},
+		UserAgent:   config.DefaultUserAgent,
+		BaseURL:     config.DefaultSearchURL,
+		MaxRetries:  config.DefaultMaxRetries,
+		MaxBodySize: config.DefaultMaxBodySize,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

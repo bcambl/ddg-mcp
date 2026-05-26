@@ -1,4 +1,4 @@
-package main
+package fetch
 
 import (
 	"context"
@@ -10,7 +10,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/bcambl/ddg-mcp/internal/config"
+	"github.com/bcambl/ddg-mcp/internal/utils"
 )
+
+func tWrite(t *testing.T, w http.ResponseWriter, data []byte) {
+	t.Helper()
+	_, err := w.Write(data)
+	require.NoError(t, err)
+}
 
 const mockHTMLPage = `<!DOCTYPE html>
 <html>
@@ -31,6 +40,18 @@ const mockHTMLPage = `<!DOCTYPE html>
 
 const mockPlainText = "This is plain text content without any HTML."
 
+func newTestClient(srv *httptest.Server) *Client {
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		HTTPClient:  srv.Client(),
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   false,
+		Timeout:     cfg.FetchTimeout,
+	})
+	return client
+}
+
 func newMockFetchServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(handler)
@@ -43,7 +64,7 @@ func TestFetchBasicHTML(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		tWrite(t, w, []byte(mockHTMLPage))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	result, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.NoError(t, err)
@@ -59,7 +80,7 @@ func TestFetchStripsScriptsAndStyles(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		tWrite(t, w, []byte(mockHTMLPage))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	result, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.NoError(t, err)
@@ -72,7 +93,7 @@ func TestFetchStripsNavFooterHeader(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		tWrite(t, w, []byte(mockHTMLPage))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	result, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.NoError(t, err)
@@ -86,7 +107,7 @@ func TestFetchExtractsTitle(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		tWrite(t, w, []byte(`<html><head><title>My Title</title></head><body>Content</body></html>`))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	result, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.NoError(t, err)
@@ -99,7 +120,7 @@ func TestFetchTruncation(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		tWrite(t, w, []byte(`<html><head><title>Long</title></head><body>`+longContent+`</body></html>`))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	result, err := client.Fetch(context.Background(), srv.URL, 100)
 	require.NoError(t, err)
@@ -112,7 +133,7 @@ func TestFetchContentTypeFiltering(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		tWrite(t, w, []byte(`{"error": "not html"}`))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	_, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.Error(t, err)
@@ -124,7 +145,7 @@ func TestFetchPlainText(t *testing.T) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		tWrite(t, w, []byte(mockPlainText))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	result, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.NoError(t, err)
@@ -137,7 +158,7 @@ func TestFetchHTMLError404(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 		tWrite(t, w, []byte("Not Found"))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	_, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.Error(t, err)
@@ -149,7 +170,7 @@ func TestFetchHTMLError500(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 		tWrite(t, w, []byte("Internal Server Error"))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	_, err := client.Fetch(context.Background(), srv.URL, 0)
 	require.Error(t, err)
@@ -157,8 +178,13 @@ func TestFetchHTMLError500(t *testing.T) {
 }
 
 func TestFetchInvalidURL(t *testing.T) {
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   cfg.SSRFProtection,
+		Timeout:     cfg.FetchTimeout,
+	})
 	_, err := client.Fetch(context.Background(), "not-a-url", 0)
 	require.Error(t, err)
 }
@@ -168,7 +194,7 @@ func TestFetchContextCancellation(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		tWrite(t, w, []byte(mockHTMLPage))
 	})
-	client := newTestFetchClient(srv)
+	client := newTestClient(srv)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -213,138 +239,14 @@ func TestCollapseWhitespace(t *testing.T) {
 	}
 }
 
-func TestPrivateIPDetection(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     webFetchInput
-		expectErr bool
-	}{
-		{
-			name:      "empty URL",
-			input:     webFetchInput{URL: ""},
-			expectErr: true,
-		},
-		{
-			name:      "valid https URL",
-			input:     webFetchInput{URL: "https://example.com"},
-			expectErr: false,
-		},
-		{
-			name:      "valid http URL",
-			input:     webFetchInput{URL: "http://example.com"},
-			expectErr: false,
-		},
-		{
-			name:      "ftp URL rejected",
-			input:     webFetchInput{URL: "ftp://example.com"},
-			expectErr: true,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.input.validate()
-			if tc.expectErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestWebSearchInputValidation(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     webSearchInput
-		expectErr bool
-		errMsg    string
-	}{
-		{
-			name:      "empty query",
-			input:     webSearchInput{Query: ""},
-			expectErr: true,
-			errMsg:    "query must not be empty",
-		},
-		{
-			name:      "valid query",
-			input:     webSearchInput{Query: "test"},
-			expectErr: false,
-		},
-		{
-			name:      "offset without vqd",
-			input:     webSearchInput{Query: "test", Offset: 10},
-			expectErr: true,
-			errMsg:    "vqd token is required",
-		},
-		{
-			name:      "offset with vqd",
-			input:     webSearchInput{Query: "test", Offset: 10, Vqd: "token"},
-			expectErr: false,
-		},
-		{
-			name:      "invalid region",
-			input:     webSearchInput{Query: "test", Region: "invalid"},
-			expectErr: true,
-			errMsg:    "region must match format",
-		},
-		{
-			name:      "valid region",
-			input:     webSearchInput{Query: "test", Region: "us-en"},
-			expectErr: false,
-		},
-		{
-			name:      "invalid safe search",
-			input:     webSearchInput{Query: "test", SafeSearch: 5},
-			expectErr: true,
-			errMsg:    "safe_search must be one of",
-		},
-		{
-			name:      "valid safe search strict",
-			input:     webSearchInput{Query: "test", SafeSearch: 1},
-			expectErr: false,
-		},
-		{
-			name:      "invalid time range",
-			input:     webSearchInput{Query: "test", TimeRange: "x"},
-			expectErr: true,
-			errMsg:    "time_range must be one of",
-		},
-		{
-			name:      "valid time range day",
-			input:     webSearchInput{Query: "test", TimeRange: "d"},
-			expectErr: false,
-		},
-		{
-			name:      "query too long",
-			input:     webSearchInput{Query: strings.Repeat("a", 501)},
-			expectErr: true,
-			errMsg:    "maximum length",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			err := tc.input.validate()
-			if tc.expectErr {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tc.errMsg)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestFetchCheckRedirectBlocksPrivateIP exercises the CheckRedirect callback
-// installed on the FetchClient to confirm that redirects targeting a private
-// IP are blocked. We invoke the callback directly because httptest.Server
-// always binds to 127.0.0.1, which means we cannot create a "public → private"
-// redirect in a hermetic test using only httptest. The callback is the unit
-// of behavior we want to verify.
 func TestFetchCheckRedirectBlocksPrivateIP(t *testing.T) {
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   cfg.SSRFProtection,
+		Timeout:     cfg.FetchTimeout,
+	})
 	require.True(t, client.checkSSRF, "SSRF check should be enabled by default")
 	require.NotNil(t, client.httpClient.CheckRedirect, "CheckRedirect must be configured")
 
@@ -358,8 +260,13 @@ func TestFetchCheckRedirectBlocksPrivateIP(t *testing.T) {
 }
 
 func TestFetchCheckRedirectBlocksLoopback(t *testing.T) {
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   cfg.SSRFProtection,
+		Timeout:     cfg.FetchTimeout,
+	})
 	loopbackURL, err := url.Parse("http://127.0.0.1:9999/internal")
 	require.NoError(t, err)
 	req := &http.Request{URL: loopbackURL}
@@ -370,8 +277,13 @@ func TestFetchCheckRedirectBlocksLoopback(t *testing.T) {
 }
 
 func TestFetchCheckRedirectBlocksLocalhost(t *testing.T) {
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   cfg.SSRFProtection,
+		Timeout:     cfg.FetchTimeout,
+	})
 	hostURL, err := url.Parse("http://localhost/admin")
 	require.NoError(t, err)
 	req := &http.Request{URL: hostURL}
@@ -382,13 +294,17 @@ func TestFetchCheckRedirectBlocksLocalhost(t *testing.T) {
 }
 
 func TestFetchCheckRedirectStopsAfter10(t *testing.T) {
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   cfg.SSRFProtection,
+		Timeout:     cfg.FetchTimeout,
+	})
 	pubURL, err := url.Parse("https://example.com/page")
 	require.NoError(t, err)
 	req := &http.Request{URL: pubURL}
 
-	// Simulate 10 prior redirects (>= 10 hops should be rejected).
 	via := make([]*http.Request, 10)
 	for i := range via {
 		via[i] = req
@@ -400,10 +316,13 @@ func TestFetchCheckRedirectStopsAfter10(t *testing.T) {
 }
 
 func TestFetchCheckRedirectAllowsPublicWhenSSRFDisabled(t *testing.T) {
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
-	// Disable SSRF check to ensure the callback honours the flag.
-	client.checkSSRF = false
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   false,
+		Timeout:     cfg.FetchTimeout,
+	})
 
 	loopbackURL, err := url.Parse("http://127.0.0.1:8080/page")
 	require.NoError(t, err)
@@ -413,28 +332,21 @@ func TestFetchCheckRedirectAllowsPublicWhenSSRFDisabled(t *testing.T) {
 	require.NoError(t, err, "should permit loopback redirect when checkSSRF=false")
 }
 
-// TestFetchRedirectIntegrationBlocksPrivateIP performs an end-to-end test
-// where a public-looking httptest server issues a redirect that points to a
-// known private IP. The redirect should be blocked by the SSRF guard.
-//
-// We bypass Fetch's pre-request hostname check by calling the configured
-// httpClient directly, since httptest.Server always binds to 127.0.0.1. The
-// CheckRedirect callback installed by newFetchClient is what we are
-// verifying, and it consults fc.checkSSRF at request time via closure.
 func TestFetchRedirectIntegrationBlocksPrivateIP(t *testing.T) {
 	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Redirect to a private IP that the SSRF guard should block.
 		http.Redirect(w, r, "http://192.168.255.255/internal", http.StatusFound)
 	}))
 	t.Cleanup(redirector.Close)
 
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
+	cfg := config.DefaultTestConfig()
+	client := NewClient(ClientOptions{
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   cfg.SSRFProtection,
+		Timeout:     cfg.FetchTimeout,
+	})
 	require.True(t, client.checkSSRF, "default client should have SSRF check enabled")
 
-	// Call the http client directly so the initial 127.0.0.1 URL is allowed
-	// (bypassing the Fetch-level pre-check) while the CheckRedirect callback
-	// remains active and observes the private redirect target.
 	httpReq, err := http.NewRequest(http.MethodGet, redirector.URL, nil)
 	require.NoError(t, err)
 
@@ -446,9 +358,6 @@ func TestFetchRedirectIntegrationBlocksPrivateIP(t *testing.T) {
 	require.Contains(t, err.Error(), "redirect to private IP blocked")
 }
 
-// TestFetchTruncateStringUTF8 calls truncateString through the fetch package
-// path so coverage credits the fetch.go-resident helper. Behavioural matrix
-// is also covered in inputs_test.go for completeness.
 func TestFetchTruncateStringUTF8(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -479,8 +388,6 @@ func TestFetchTruncateStringUTF8(t *testing.T) {
 			wantLen: 5,
 		},
 		{
-			// "日本語" = 3 runes × 3 bytes = 9 bytes.
-			// maxLen=5 backs off from mid-second-rune to end of first rune (3 bytes).
 			name:    "utf8 backs off mid-rune to nearest boundary",
 			input:   "日本語",
 			maxLen:  5,
@@ -488,7 +395,6 @@ func TestFetchTruncateStringUTF8(t *testing.T) {
 			wantLen: 3,
 		},
 		{
-			// maxLen exactly at rune boundary returns those runes.
 			name:    "utf8 at exact rune boundary",
 			input:   "日本語",
 			maxLen:  6,
@@ -496,7 +402,6 @@ func TestFetchTruncateStringUTF8(t *testing.T) {
 			wantLen: 6,
 		},
 		{
-			// 🌟 is U+1F31F = 4 bytes.
 			name:    "emoji rune backs off when truncating mid-rune",
 			input:   "ab🌟cd",
 			maxLen:  4,
@@ -504,7 +409,6 @@ func TestFetchTruncateStringUTF8(t *testing.T) {
 			wantLen: 2,
 		},
 		{
-			// maxLen=6 is exactly after the 4-byte emoji starting at byte index 2.
 			name:    "emoji boundary preserved when maxLen lands at rune end",
 			input:   "ab🌟cd",
 			maxLen:  6,
@@ -515,17 +419,13 @@ func TestFetchTruncateStringUTF8(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := truncateString(tc.input, tc.maxLen)
+			got := utils.TruncateString(tc.input, tc.maxLen)
 			require.Equal(t, tc.want, got, "input=%q maxLen=%d", tc.input, tc.maxLen)
 			require.Equal(t, tc.wantLen, len(got))
 		})
 	}
 }
 
-// TestFetchTruncateStringInvariants asserts the byte-safety invariant:
-// regardless of input/maxLen, the result must always contain only well-formed
-// UTF-8 (no rune boundaries split). This is a sweep over interesting inputs
-// rather than one subtest per byte to keep output readable.
 func TestFetchTruncateStringInvariants(t *testing.T) {
 	inputs := []string{
 		"plain ascii string",
@@ -537,14 +437,11 @@ func TestFetchTruncateStringInvariants(t *testing.T) {
 	for _, in := range inputs {
 		t.Run(fmt.Sprintf("input=%q", in), func(t *testing.T) {
 			for maxLen := 0; maxLen <= len(in)+5; maxLen++ {
-				got := truncateString(in, maxLen)
-				// Result must never exceed maxLen unless input <= maxLen
-				// (in which case the whole string is returned).
+				got := utils.TruncateString(in, maxLen)
 				if len(in) > maxLen {
 					require.LessOrEqual(t, len(got), maxLen,
 						"input=%q maxLen=%d got=%q", in, maxLen, got)
 				}
-				// Output must always be well-formed UTF-8.
 				for _, r := range got {
 					require.NotEqual(t, '\uFFFD', r,
 						"truncated string contains invalid UTF-8: %q (maxLen=%d)", got, maxLen)

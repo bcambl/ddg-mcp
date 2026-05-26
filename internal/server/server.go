@@ -1,18 +1,21 @@
-package main
+package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/bcambl/ddg-mcp/internal/fetch"
+	"github.com/bcambl/ddg-mcp/internal/inputs"
+	"github.com/bcambl/ddg-mcp/internal/search"
 )
 
 const serverName = "ddg-mcp"
 
-var version = "dev"
-
-func newServer(searchClient *SearchClient, fetchClient *FetchClient, defaultRegion string) *mcp.Server {
+func New(searchClient *search.Client, fetchClient *fetch.Client, version string, defaultRegion string) *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    serverName,
 		Version: version,
@@ -37,9 +40,9 @@ func newServer(searchClient *SearchClient, fetchClient *FetchClient, defaultRegi
 	return server
 }
 
-func makeWebSearchHandler(client *SearchClient, defaultRegion string) mcp.ToolHandlerFor[webSearchInput, any] {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input webSearchInput) (*mcp.CallToolResult, any, error) {
-		if err := input.validate(); err != nil {
+func makeWebSearchHandler(client *search.Client, defaultRegion string) mcp.ToolHandlerFor[inputs.Search, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input inputs.Search) (*mcp.CallToolResult, any, error) {
+		if err := input.Validate(); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -48,13 +51,13 @@ func makeWebSearchHandler(client *SearchClient, defaultRegion string) mcp.ToolHa
 			region = defaultRegion
 		}
 
-		opts := SearchOptions{
+		opts := search.SearchOptions{
 			Region:     region,
 			SafeSearch: input.SafeSearch,
 			TimeRange:  input.TimeRange,
 		}
 
-		var resp *SearchResponse
+		var resp *search.SearchResponse
 		var err error
 
 		if input.Offset > 0 {
@@ -72,9 +75,9 @@ func makeWebSearchHandler(client *SearchClient, defaultRegion string) mcp.ToolHa
 	}
 }
 
-func makeWebFetchHandler(client *FetchClient) mcp.ToolHandlerFor[webFetchInput, any] {
-	return func(ctx context.Context, req *mcp.CallToolRequest, input webFetchInput) (*mcp.CallToolResult, any, error) {
-		if err := input.validate(); err != nil {
+func makeWebFetchHandler(client *fetch.Client) mcp.ToolHandlerFor[inputs.Fetch, any] {
+	return func(ctx context.Context, req *mcp.CallToolRequest, input inputs.Fetch) (*mcp.CallToolResult, any, error) {
+		if err := input.Validate(); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -88,7 +91,32 @@ func makeWebFetchHandler(client *FetchClient) mcp.ToolHandlerFor[webFetchInput, 
 	}
 }
 
-func parseLogLevel(level string) slog.Level {
+func errorResult(err error) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: fmt.Sprintf("Error: %s", err.Error())},
+		},
+		IsError: true,
+	}
+}
+
+func successResult(result any) *mcp.CallToolResult {
+	resultBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("%v", result)},
+			},
+		}
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(resultBytes)},
+		},
+	}
+}
+
+func ParseLogLevel(level string) slog.Level {
 	switch level {
 	case "debug":
 		return slog.LevelDebug
@@ -98,24 +126,5 @@ func parseLogLevel(level string) slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
-	}
-}
-
-func main() {
-	cfg := loadConfig()
-
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
-		Level: parseLogLevel(cfg.LogLevel),
-	})))
-
-	searchClient := newSearchClient(cfg)
-	fetchClient := newFetchClient(cfg)
-	server := newServer(searchClient, fetchClient, cfg.DefaultRegion)
-
-	slog.Info("starting ddg-mcp server", "version", version)
-
-	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		slog.Error("MCP server failed", "error", err)
-		os.Exit(1)
 	}
 }

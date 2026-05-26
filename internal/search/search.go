@@ -1,4 +1,4 @@
-package main
+package search
 
 import (
 	"context"
@@ -14,14 +14,7 @@ import (
 	"golang.org/x/net/html"
 )
 
-const (
-	ddgLiteSearchURL      = "https://lite.duckduckgo.com/lite/"
-	ddgDefaultUA          = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-	ddgTimeoutSec         = 15
-	ddgDefaultMaxRetries  = 2
-	ddgDefaultMaxBodySize = 2 * 1024 * 1024
-	retryBaseDelay        = 2 * time.Second
-)
+const retryBaseDelay = 2 * time.Second
 
 type SearchResult struct {
 	Title     string `json:"title"`
@@ -54,7 +47,16 @@ type SearchOptions struct {
 	TimeRange  string
 }
 
-type SearchClient struct {
+type ClientOptions struct {
+	HTTPClient  *http.Client
+	UserAgent   string
+	BaseURL     string
+	MaxRetries  int
+	RetryDelay  time.Duration
+	MaxBodySize int64
+}
+
+type Client struct {
 	httpClient *http.Client
 	userAgent  string
 	baseURL    string
@@ -63,20 +65,26 @@ type SearchClient struct {
 	maxBody    int64
 }
 
-func newSearchClient(cfg *Config) *SearchClient {
-	return &SearchClient{
-		httpClient: &http.Client{
-			Timeout: cfg.SearchTimeout,
-		},
-		userAgent:  cfg.UserAgent,
-		baseURL:    cfg.SearchURL,
-		maxRetries: cfg.MaxRetries,
-		retryDelay: retryBaseDelay,
-		maxBody:    cfg.MaxBodySize,
+func NewClient(opts ClientOptions) *Client {
+	httpClient := opts.HTTPClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 15 * time.Second}
+	}
+	retryDelay := opts.RetryDelay
+	if retryDelay == 0 {
+		retryDelay = retryBaseDelay
+	}
+	return &Client{
+		httpClient: httpClient,
+		userAgent:  opts.UserAgent,
+		baseURL:    opts.BaseURL,
+		maxRetries: opts.MaxRetries,
+		retryDelay: retryDelay,
+		maxBody:    opts.MaxBodySize,
 	}
 }
 
-func (c *SearchClient) Search(ctx context.Context, query string, opts SearchOptions) (*SearchResponse, error) {
+func (c *Client) Search(ctx context.Context, query string, opts SearchOptions) (*SearchResponse, error) {
 	params := url.Values{}
 	params.Set("q", query)
 	if opts.Region != "" {
@@ -153,7 +161,7 @@ func (c *SearchClient) Search(ctx context.Context, query string, opts SearchOpti
 	return nil, lastErr
 }
 
-func (c *SearchClient) SearchWithOffset(ctx context.Context, query string, offset int, vqd string, opts SearchOptions) (*SearchResponse, error) {
+func (c *Client) SearchWithOffset(ctx context.Context, query string, offset int, vqd string, opts SearchOptions) (*SearchResponse, error) {
 	formData := url.Values{}
 	formData.Set("q", query)
 	formData.Set("s", strconv.Itoa(offset))

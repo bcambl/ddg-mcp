@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"context"
@@ -10,24 +10,54 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bcambl/ddg-mcp/internal/config"
+	"github.com/bcambl/ddg-mcp/internal/fetch"
+	"github.com/bcambl/ddg-mcp/internal/inputs"
+	"github.com/bcambl/ddg-mcp/internal/search"
 )
 
-func newTestSearchClient(srv *httptest.Server) *SearchClient {
-	cfg := defaultTestConfig()
-	client := newSearchClient(cfg)
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	client.maxRetries = 0
-	client.retryDelay = 0
-	return client
+func tWrite(t *testing.T, w http.ResponseWriter, data []byte) {
+	t.Helper()
+	_, err := w.Write(data)
+	require.NoError(t, err)
 }
 
-func newTestFetchClient(srv *httptest.Server) *FetchClient {
-	cfg := defaultTestConfig()
-	client := newFetchClient(cfg)
-	client.httpClient = srv.Client()
-	client.checkSSRF = false
-	return client
+const mockDDGLiteHTML = `<table border="0">
+<tr><td valign="top">1.&nbsp;</td><td><a class="result-link" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fgolang&amp;rut=abc123">Go Programming Language</a></td></tr>
+<tr><td>&nbsp;&nbsp;&nbsp;</td><td class="result-snippet">Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.</td></tr>
+<tr><td>&nbsp;&nbsp;&nbsp;</td><td><span class="link-text">example.com/golang</span></td></tr>
+<tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+<tr><td valign="top">2.&nbsp;</td><td><a class="result-link" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgolang.org%2Fdoc%2Ftutorial&amp;rut=def456">Go Tutorial - golang.org</a></td></tr>
+<tr><td>&nbsp;&nbsp;&nbsp;</td><td class="result-snippet">A tutorial introducing the basics of Go programming. Learn how to write packages and programs.</td></tr>
+<tr><td>&nbsp;&nbsp;&nbsp;</td><td><span class="link-text">golang.org/doc/tutorial</span></td></tr>
+<tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+<tr><td valign="top">3.&nbsp;</td><td><a class="result-link" href="https://plain-url.example.com/page">Plain URL Result</a></td></tr>
+<tr><td>&nbsp;&nbsp;&nbsp;</td><td class="result-snippet">This result has a plain URL without DDG redirect.</td></tr>
+<tr><td>&nbsp;&nbsp;&nbsp;</td><td><span class="link-text">plain-url.example.com/page</span></td></tr>
+<tr><td>&nbsp;</td><td>&nbsp;</td></tr>
+</table>`
+
+func newTestSearchClient(srv *httptest.Server) *search.Client {
+	return search.NewClient(search.ClientOptions{
+		HTTPClient:  srv.Client(),
+		UserAgent:   config.DefaultUserAgent,
+		BaseURL:     srv.URL,
+		MaxRetries:  0,
+		RetryDelay:  0,
+		MaxBodySize: config.DefaultMaxBodySize,
+	})
+}
+
+func newTestFetchClient(srv *httptest.Server) *fetch.Client {
+	cfg := config.DefaultTestConfig()
+	return fetch.NewClient(fetch.ClientOptions{
+		HTTPClient:  srv.Client(),
+		UserAgent:   cfg.FetchUserAgent,
+		MaxBodySize: cfg.MaxBodySize,
+		CheckSSRF:   false,
+		Timeout:     cfg.FetchTimeout,
+	})
 }
 
 func setupMCPTest(t *testing.T) (*httptest.Server, *mcp.ClientSession) {
@@ -42,7 +72,7 @@ func setupMCPTest(t *testing.T) (*httptest.Server, *mcp.ClientSession) {
 
 	searchClient := newTestSearchClient(srv)
 	fetchClient := newTestFetchClient(srv)
-	server := newServer(searchClient, fetchClient, "")
+	server := New(searchClient, fetchClient, "test", "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
@@ -139,12 +169,12 @@ func TestMCPServerWebSearchServerError(t *testing.T) {
 
 	searchClient := newTestSearchClient(srv)
 	fetchClient := newTestFetchClient(srv)
-	server := newServer(searchClient, fetchClient, "")
+	s := New(searchClient, fetchClient, "test", "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 
-	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	serverSession, err := s.Connect(ctx, serverTransport, nil)
 	require.NoError(t, err)
 	defer serverSession.Close()
 
@@ -176,12 +206,12 @@ func TestMCPServerWebSearchRateLimited(t *testing.T) {
 
 	searchClient := newTestSearchClient(srv)
 	fetchClient := newTestFetchClient(srv)
-	server := newServer(searchClient, fetchClient, "")
+	s := New(searchClient, fetchClient, "test", "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 
-	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	serverSession, err := s.Connect(ctx, serverTransport, nil)
 	require.NoError(t, err)
 	defer serverSession.Close()
 
@@ -207,7 +237,7 @@ func TestMCPServerWebSearchRateLimited(t *testing.T) {
 func TestMCPServerWebSearchQueryTooLong(t *testing.T) {
 	_, clientSession := setupMCPTest(t)
 
-	longQuery := strings.Repeat("a", maxQueryLength+1)
+	longQuery := strings.Repeat("a", inputs.MaxQueryLength+1)
 
 	ctx := context.Background()
 	result, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -240,12 +270,12 @@ func TestMCPServerWebFetchToolCall(t *testing.T) {
 
 	searchClient := newTestSearchClient(searchSrv)
 	fetchClient := newTestFetchClient(fetchSrv)
-	server := newServer(searchClient, fetchClient, "")
+	s := New(searchClient, fetchClient, "test", "")
 
 	ctx := context.Background()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
 
-	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	serverSession, err := s.Connect(ctx, serverTransport, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { serverSession.Close() })
 
@@ -271,4 +301,37 @@ func TestMCPServerWebFetchToolCall(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fetchSrv.URL, parsed["url"])
 	require.Equal(t, "Test Page", parsed["title"])
+}
+
+func TestSuccessResultFallback(t *testing.T) {
+	r := successResult(make(chan int))
+	require.Len(t, r.Content, 1)
+	textContent, ok := r.Content[0].(*mcp.TextContent)
+	require.True(t, ok)
+	require.NotEmpty(t, textContent.Text)
+}
+
+func TestErrorResultHelper(t *testing.T) {
+	res := errorResult(inputs.ErrEmptyQuery)
+	require.NotNil(t, res)
+	require.True(t, res.IsError)
+	require.Len(t, res.Content, 1)
+
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	require.True(t, ok, "expected *mcp.TextContent, got %T", res.Content[0])
+	require.Contains(t, tc.Text, inputs.ErrEmptyQuery.Error())
+	require.True(t, len(tc.Text) >= len("Error: "), "should be prefixed with 'Error: '")
+}
+
+func TestSuccessResultHelper(t *testing.T) {
+	payload := map[string]any{"foo": "bar", "n": 42}
+	res := successResult(payload)
+	require.NotNil(t, res)
+	require.False(t, res.IsError)
+	require.Len(t, res.Content, 1)
+
+	tc, ok := res.Content[0].(*mcp.TextContent)
+	require.True(t, ok, "expected *mcp.TextContent, got %T", res.Content[0])
+	require.Contains(t, tc.Text, `"foo": "bar"`)
+	require.Contains(t, tc.Text, `"n": 42`)
 }

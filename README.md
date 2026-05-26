@@ -31,7 +31,7 @@ Download the latest release from the [releases page](https://github.com/bcambl/d
 ### Go install
 
 ```bash
-go install github.com/bcambl/ddg-mcp@latest
+go install github.com/bcambl/ddg-mcp/cmd/ddg-mcp@latest
 ```
 
 ### Build from source
@@ -148,7 +148,7 @@ If installed via `go install`, use the full path:
   "mcpServers": {
     "ddg-search": {
       "command": "go",
-      "args": ["run", "github.com/bcambl/ddg-mcp@latest"]
+      "args": ["run", "github.com/bcambl/ddg-mcp/cmd/ddg-mcp@latest"]
     }
   }
 }

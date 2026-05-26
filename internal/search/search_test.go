@@ -1,4 +1,4 @@
-package main
+package search
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 )
 
@@ -95,14 +94,15 @@ func newMockDDGServer(t *testing.T, responseHTML string, statusCode int) *httpte
 	return srv
 }
 
-func newTestClient(srv *httptest.Server) *SearchClient {
-	cfg := defaultTestConfig()
-	client := newSearchClient(cfg)
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	client.maxRetries = 0
-	client.retryDelay = 0
-	return client
+func newTestClient(srv *httptest.Server) *Client {
+	return NewClient(ClientOptions{
+		HTTPClient:  srv.Client(),
+		UserAgent:   "test-agent",
+		BaseURL:     srv.URL,
+		MaxRetries:  0,
+		RetryDelay:  0,
+		MaxBodySize: 2 * 1024 * 1024,
+	})
 }
 
 func TestSearchBasic(t *testing.T) {
@@ -198,7 +198,7 @@ func TestSearchRequestHasCorrectHeaders(t *testing.T) {
 	_, err := client.Search(context.Background(), "test", SearchOptions{})
 	require.NoError(t, err)
 
-	require.Equal(t, ddgDefaultUA, capturedHeaders.Get("User-Agent"))
+	require.Equal(t, "test-agent", capturedHeaders.Get("User-Agent"))
 	require.Equal(t, "https://lite.duckduckgo.com/", capturedHeaders.Get("Referer"))
 	require.NotEmpty(t, capturedHeaders.Get("Accept"))
 	require.NotEmpty(t, capturedHeaders.Get("Accept-Language"))
@@ -469,12 +469,14 @@ func TestSearchRetryOn429ThenSuccess(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := defaultTestConfig()
-	client := newSearchClient(cfg)
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	client.maxRetries = 1
-	client.retryDelay = 10 * time.Millisecond
+	client := NewClient(ClientOptions{
+		HTTPClient:  srv.Client(),
+		UserAgent:   "test-agent",
+		BaseURL:     srv.URL,
+		MaxRetries:  1,
+		RetryDelay:  10 * time.Millisecond,
+		MaxBodySize: 2 * 1024 * 1024,
+	})
 
 	resp, err := client.Search(context.Background(), "test", SearchOptions{})
 	require.NoError(t, err)
@@ -488,12 +490,14 @@ func TestSearchRetryExhausted(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cfg := defaultTestConfig()
-	client := newSearchClient(cfg)
-	client.baseURL = srv.URL
-	client.httpClient = srv.Client()
-	client.maxRetries = 1
-	client.retryDelay = 10 * time.Millisecond
+	client := NewClient(ClientOptions{
+		HTTPClient:  srv.Client(),
+		UserAgent:   "test-agent",
+		BaseURL:     srv.URL,
+		MaxRetries:  1,
+		RetryDelay:  10 * time.Millisecond,
+		MaxBodySize: 2 * 1024 * 1024,
+	})
 
 	_, err := client.Search(context.Background(), "test", SearchOptions{})
 	require.Error(t, err)
@@ -520,21 +524,14 @@ func TestSearchConcurrentSafety(t *testing.T) {
 }
 
 func TestSearchNewRequestError(t *testing.T) {
-	cfg := defaultTestConfig()
-	client := newSearchClient(cfg)
-	client.baseURL = "http://\x00invalid"
+	client := NewClient(ClientOptions{
+		UserAgent: "test-agent",
+		BaseURL:   "http://\x00invalid",
+	})
 
 	_, err := client.Search(context.Background(), "test", SearchOptions{})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to create search request")
-}
-
-func TestSuccessResultFallback(t *testing.T) {
-	r := successResult(make(chan int))
-	require.Len(t, r.Content, 1)
-	textContent, ok := r.Content[0].(*mcp.TextContent)
-	require.True(t, ok)
-	require.NotEmpty(t, textContent.Text)
 }
 
 func TestParseResultsWithMalformedHTML(t *testing.T) {
@@ -581,9 +578,6 @@ func BenchmarkSearch(b *testing.B) {
 	}
 }
 
-// TestSearchAllOptionsTogether verifies that region, safe search, and time
-// range can be combined on the same GET request without one option clobbering
-// another. All three should appear in the encoded query string.
 func TestSearchAllOptionsTogether(t *testing.T) {
 	var capturedURL string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -614,8 +608,6 @@ func TestSearchAllOptionsTogether(t *testing.T) {
 	require.Equal(t, "m", q.Get("df"))
 }
 
-// TestSearchWithOffsetAllOptionsTogether verifies that the POST-based
-// pagination path also forwards all option fields simultaneously.
 func TestSearchWithOffsetAllOptionsTogether(t *testing.T) {
 	var capturedBody []byte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -643,85 +635,4 @@ func TestSearchWithOffsetAllOptionsTogether(t *testing.T) {
 	require.Equal(t, "uk-en", form.Get("kl"))
 	require.Equal(t, "-2", form.Get("kp"))
 	require.Equal(t, "y", form.Get("df"))
-}
-
-// TestWebSearchInputNegativeOffset confirms that negative offsets are
-// rejected by validation. This was added to inputs.go to defend against
-// callers passing nonsensical pagination values.
-func TestWebSearchInputNegativeOffset(t *testing.T) {
-	tests := []struct {
-		name   string
-		offset int
-		want   bool // want error
-	}{
-		{"offset -1 rejected", -1, true},
-		{"offset -100 rejected", -100, true},
-		{"offset 0 allowed", 0, false},
-		{"offset 10 with vqd allowed", 10, false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			input := webSearchInput{
-				Query:  "test",
-				Offset: tc.offset,
-			}
-			if tc.offset > 0 {
-				input.Vqd = "token" // required when offset > 0
-			}
-			err := input.validate()
-			if tc.want {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), "offset must be non-negative")
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
-// TestWebSearchInputAllOptionsTogether confirms that the validator accepts a
-// fully-populated input with every supported option set at once.
-func TestWebSearchInputAllOptionsTogether(t *testing.T) {
-	input := webSearchInput{
-		Query:      "search me",
-		Region:     "us-en",
-		SafeSearch: 1,
-		TimeRange:  "w",
-		Offset:     20,
-		Vqd:        "vqd-token-xyz",
-	}
-	err := input.validate()
-	require.NoError(t, err)
-	require.Equal(t, "search me", input.Query)
-	require.Equal(t, "us-en", input.Region)
-	require.Equal(t, 1, input.SafeSearch)
-	require.Equal(t, "w", input.TimeRange)
-	require.Equal(t, 20, input.Offset)
-	require.Equal(t, "vqd-token-xyz", input.Vqd)
-}
-
-// TestWebSearchInputQueryWhitespaceTrimmed ensures the query is trimmed before
-// validation (already covered indirectly elsewhere but explicit here for clarity).
-func TestWebSearchInputQueryWhitespaceTrimmed(t *testing.T) {
-	input := webSearchInput{Query: "  golang  "}
-	err := input.validate()
-	require.NoError(t, err)
-	require.Equal(t, "golang", input.Query)
-}
-
-func TestWebSearchInputAllSafeSearchValues(t *testing.T) {
-	for _, val := range []int{0, 1, -1, -2} {
-		input := webSearchInput{Query: "test", SafeSearch: val}
-		err := input.validate()
-		require.NoError(t, err, "safe_search=%d should be valid", val)
-	}
-}
-
-func TestWebSearchInputAllTimeRangeValues(t *testing.T) {
-	for _, val := range []string{"", "d", "w", "m", "y"} {
-		input := webSearchInput{Query: "test", TimeRange: val}
-		err := input.validate()
-		require.NoError(t, err, "time_range=%q should be valid", val)
-	}
 }
